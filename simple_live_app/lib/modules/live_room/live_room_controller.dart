@@ -389,108 +389,163 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     return qualityLevel;
   }
 
+
+  int mediaErrorRetryCount = 0;
+  int _playSession = 0;
+  bool _recovering = false;
+  bool _openingStream = false;
+  bool _recoveryFailed = false;
+  Timer? _stableTimer;
+
+  void _invalidateRecovery() {
+    _playSession++;
+    _stableTimer?.cancel();
+    mediaErrorRetryCount = 0;
+  }
+
+  bool _active(int session) => !isClosed && session == _playSession;
+
+  Playlist _buildPlaylist() => Playlist(
+    playUrls.map((url) {
+      final target = AppSettingsController.instance.playerForceHttps.value
+          ? url.replaceAll("http://", "https://") : url;
+      return Media(target, httpHeaders: playHeaders);
+    }).toList(), index: currentLineIndex);
+
   void getPlayUrl() async {
+    _invalidateRecovery();
+    final session = _playSession;
+    _openingStream = true;
     playUrls.clear();
     currentQualityInfo.value = qualites[currentQuality].quality;
     currentLineInfo.value = "";
     currentLineIndex = -1;
-    var playUrl = await site.liveSite
-        .getPlayUrls(detail: detail.value!, quality: qualites[currentQuality]);
-    if (playUrl.urls.isEmpty) {
-      SmartDialog.showToast("无法读取播放地址");
-      return;
+    try {
+      final result = await site.liveSite.getPlayUrls(
+        detail: detail.value!, quality: qualites[currentQuality]);
+      if (!_active(session)) return;
+      if (result.urls.isEmpty) throw StateError("播放地址为空");
+      playUrls.value = result.urls;
+      playHeaders = result.headers;
+      currentLineIndex = 0;
+      await initPlaylist();
+    } catch (e) {
+      if (_active(session)) {
+        Log.d("获取播放地址失败：" + e.toString());
+        SmartDialog.showToast("无法读取或打开播放地址");
+      }
+    } finally {
+      if (_active(session)) _openingStream = false;
     }
-    playUrls.value = playUrl.urls;
-    playHeaders = playUrl.headers;
-    currentLineIndex = 0;
-    currentLineInfo.value = "线路${currentLineIndex + 1}";
-    //重置错误次数
-    mediaErrorRetryCount = 0;
-    initPlaylist();
   }
 
   void changePlayLine(int index) {
+    if (index < 0 || index >= playUrls.length) return;
+    _invalidateRecovery();
     currentLineIndex = index;
-    //重置错误次数
-    mediaErrorRetryCount = 0;
-    setPlayer();
+    unawaited(setPlayer());
   }
 
-  void initPlaylist() async {
-    currentLineInfo.value = "线路${currentLineIndex + 1}";
+  Future<void> initPlaylist() async {
+    currentLineInfo.value = "线路" + (currentLineIndex + 1).toString();
     errorMsg.value = "";
-
-    final mediaList = playUrls.map((url) {
-      var finalUrl = url;
-      if (AppSettingsController.instance.playerForceHttps.value) {
-        finalUrl = finalUrl.replaceAll("http://", "https://");
-      }
-      return Media(finalUrl, httpHeaders: playHeaders);
-    }).toList();
-
-    // 初始化播放器并设置 ao 参数
     await initializePlayer();
-
-    await player.open(Playlist(mediaList));
+    await player.open(_buildPlaylist());
   }
 
-  void setPlayer() async {
-    currentLineInfo.value = "线路${currentLineIndex + 1}";
+  Future<void> setPlayer() async {
+    final session = _playSession;
+    _openingStream = true;
+    currentLineInfo.value = "线路" + (currentLineIndex + 1).toString();
     errorMsg.value = "";
-
-    await player.jump(currentLineIndex);
-  }
-
-  @override
-  void mediaEnd() async {
-    super.mediaEnd();
-    if (mediaErrorRetryCount < 2) {
-      Log.d("播放结束，尝试第${mediaErrorRetryCount + 1}次刷新");
-      if (mediaErrorRetryCount == 1) {
-        //延迟一秒再刷新
-        await Future.delayed(const Duration(seconds: 1));
-      }
-      mediaErrorRetryCount += 1;
-      //刷新一次
-      setPlayer();
-      return;
-    }
-
-    Log.d("播放结束");
-    // 遍历线路，如果全部链接都断开就是直播结束了
-    if (playUrls.length - 1 == currentLineIndex) {
-      liveStatus.value = false;
-    } else {
-      changePlayLine(currentLineIndex + 1);
-
-      //setPlayer();
+    try {
+      await player.open(_buildPlaylist());
+    } catch (e) {
+      if (_active(session)) Log.d("切换线路失败：" + e.toString());
+    } finally {
+      if (_active(session)) _openingStream = false;
     }
   }
 
-  int mediaErrorRetryCount = 0;
-  @override
-  void mediaError(String error) async {
-    super.mediaEnd();
-    if (mediaErrorRetryCount < 2) {
-      Log.d("播放失败，尝试第${mediaErrorRetryCount + 1}次刷新");
-      if (mediaErrorRetryCount == 1) {
-        //延迟一秒再刷新
-        await Future.delayed(const Duration(seconds: 1));
-      }
-      mediaErrorRetryCount += 1;
-      //刷新一次
-      setPlayer();
+  void _requestRecovery(String reason) {
+    if (isClosed || _openingStream || !liveStatus.value ||
+        detail.value == null || currentQuality < 0 ||
+        currentQuality >= qualites.length) return;
+    if (_recovering) {
+      _recoveryFailed = true;
       return;
     }
+    unawaited(_recoverPlayback(reason));
+  }
 
-    if (playUrls.length - 1 == currentLineIndex) {
-      errorMsg.value = "播放失败";
-      SmartDialog.showToast("播放失败:$error");
-    } else {
-      //currentLineIndex += 1;
-      //setPlayer();
-      changePlayLine(currentLineIndex + 1);
+  Future<void> _recoverPlayback(String reason) async {
+    _recovering = true;
+    _stableTimer?.cancel();
+    final session = _playSession;
+    final firstLine = currentLineIndex < 0 ? 0 : currentLineIndex;
+    try {
+      for (var attempt = 1; attempt <= 3; attempt++) {
+        if (!_active(session)) return;
+        mediaErrorRetryCount = attempt;
+        if (attempt > 1) {
+          await Future.delayed(Duration(seconds: (attempt - 1) * 2));
+        }
+        if (!_active(session)) return;
+        Log.d("直播断流，尝试第" + attempt.toString() + "/3次恢复：" + reason);
+        try {
+          final fresh = await site.liveSite.getPlayUrls(
+            detail: detail.value!, quality: qualites[currentQuality]);
+          if (!_active(session)) return;
+          if (fresh.urls.isEmpty) throw StateError("直播地址为空");
+          playUrls.value = fresh.urls;
+          playHeaders = fresh.headers;
+          currentLineIndex = (firstLine + attempt - 1) % playUrls.length;
+          currentLineInfo.value = "线路" + (currentLineIndex + 1).toString();
+          errorMsg.value = "";
+          _recoveryFailed = false;
+          _openingStream = true;
+          try {
+            await player.open(_buildPlaylist());
+          } finally {
+            if (_active(session)) _openingStream = false;
+          }
+          if (!_active(session)) return;
+          _recoveryFailed = false;
+          await Future.delayed(const Duration(seconds: 4));
+          if (!_active(session)) return;
+          if (!_recoveryFailed && !player.state.completed &&
+              player.state.playing && (player.state.width ?? 0) > 0) {
+            Log.d("直播流恢复成功");
+            _stableTimer = Timer(const Duration(seconds: 30), () {
+              if (_active(session) && player.state.playing &&
+                  !player.state.completed) mediaErrorRetryCount = 0;
+            });
+            return;
+          }
+          throw StateError("重连后仍未稳定播放");
+        } catch (e) {
+          if (_active(session)) Log.d("恢复失败：" + e.toString());
+        }
+      }
+      if (_active(session)) {
+        errorMsg.value = "播放失败，请手动刷新";
+        SmartDialog.showToast("直播恢复失败，请手动刷新");
+      }
+    } finally {
+      _recovering = false;
     }
+  }
+
+  @override
+  void mediaEnd() {
+    super.mediaEnd();
+    _requestRecovery("播放流意外结束");
+  }
+
+  @override
+  void mediaError(String error) {
+    super.mediaError(error);
+    _requestRecovery(error);
   }
 
   /// 读取SC
@@ -986,7 +1041,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     // 重新设置LiveDanmaku
     liveDanmaku = site.liveSite.getDanmaku();
 
-    // 停止播放
+    // 停止播放，并废弃先前直播间的异步恢复
+    _invalidateRecovery();
+    _openingStream = true;
     await player.stop();
 
     // 刷新信息
@@ -1053,6 +1110,8 @@ ${error?.stackTrace}''');
 
   @override
   void onClose() {
+    _invalidateRecovery();
+    _openingStream = true;
     WidgetsBinding.instance.removeObserver(this);
     scrollController.removeListener(scrollListener);
     autoExitTimer?.cancel();
