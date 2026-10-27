@@ -1,0 +1,53 @@
+name: Flutter CI (fork)
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze live-room changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.3'
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        working-directory: simple_live_app
+        run: flutter pub get
+      - name: Analyze changed Dart files
+        working-directory: simple_live_app
+        run: |
+          dart analyze --fatal-infos lib/modules/live_room/live_room_controller.dart
+          dart analyze --fatal-infos lib/modules/live_room/live_room_page.dart
+
+  macos-build:
+    name: macOS build
+    needs: analyze
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.3'
+          channel: stable
+          cache: true
+      - name: Enable macOS desktop
+        run: flutter config --enable-macos-desktop
+      - name: Install dependencies
+        working-directory: simple_live_app
+        run: flutter pub get
+      - name: Build macOS app
+        working-directory: simple_live_app
+        run: flutter build macos --release

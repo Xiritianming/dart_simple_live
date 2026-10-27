@@ -531,67 +531,105 @@ class LiveRoomPage extends GetView<LiveRoomController> {
       );
     }
 
-    return Obx(
-      () => AppSettingsController.instance.chatBubbleStyle.value
-          ? Row(
-              mainAxisAlignment: MainAxisAlignment.start,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Flexible(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.blueGrey.withAlpha(25),
-                      //borderRadius: AppStyle.radius8,
-                      borderRadius: const BorderRadius.only(
-                        topRight: Radius.circular(12),
-                        bottomLeft: Radius.circular(12),
-                        bottomRight: Radius.circular(12),
-                      ),
-                    ),
-                    padding:
-                        AppStyle.edgeInsetsA4.copyWith(left: 12, right: 12),
-                    child: Text.rich(
-                      TextSpan(
-                        text: "${message.userName}：",
-                        style: TextStyle(
-                          color: Colors.grey,
-                          fontSize:
-                              AppSettingsController.instance.chatTextSize.value,
+    return Builder(
+      builder: (context) => GestureDetector(
+        onSecondaryTapDown: (details) => _showMessageCopyMenu(
+          context, message, details.globalPosition),
+        onLongPressStart: (details) => _showMessageCopyMenu(
+          context, message, details.globalPosition),
+        child: Obx(
+          () => AppSettingsController.instance.chatBubbleStyle.value
+              ? Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Flexible(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.blueGrey.withAlpha(25),
+                          //borderRadius: AppStyle.radius8,
+                          borderRadius: const BorderRadius.only(
+                            topRight: Radius.circular(12),
+                            bottomLeft: Radius.circular(12),
+                            bottomRight: Radius.circular(12),
+                          ),
                         ),
-                        children: [
+                        padding:
+                            AppStyle.edgeInsetsA4.copyWith(left: 12, right: 12),
+                        child: Text.rich(
                           TextSpan(
-                            text: message.message,
+                            text: "${message.userName}：",
                             style: TextStyle(
-                              color: Get.isDarkMode
-                                  ? Colors.white
-                                  : AppColors.black333,
+                              color: Colors.grey,
+                              fontSize:
+                                  AppSettingsController.instance.chatTextSize.value,
                             ),
-                          )
-                        ],
+                            children: [
+                              TextSpan(
+                                text: message.message,
+                                style: TextStyle(
+                                  color: Get.isDarkMode
+                                      ? Colors.white
+                                      : AppColors.black333,
+                                ),
+                              )
+                            ],
+                          ),
+                        ),
                       ),
                     ),
+                  ],
+                )
+              : Text.rich(
+                  TextSpan(
+                    text: "${message.userName}：",
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: AppSettingsController.instance.chatTextSize.value,
+                    ),
+                    children: [
+                      TextSpan(
+                        text: message.message,
+                        style: TextStyle(
+                          color: Get.isDarkMode ? Colors.white : AppColors.black333,
+                        ),
+                      )
+                    ],
                   ),
                 ),
-              ],
-            )
-          : Text.rich(
-              TextSpan(
-                text: "${message.userName}：",
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: AppSettingsController.instance.chatTextSize.value,
-                ),
-                children: [
-                  TextSpan(
-                    text: message.message,
-                    style: TextStyle(
-                      color: Get.isDarkMode ? Colors.white : AppColors.black333,
-                    ),
-                  )
-                ],
-              ),
-            ),
+    
+        ),
+      ),
     );
+  }
+
+  // Both desktop right-click and mobile long-press use the same menu.
+  // Only message.message is copied; the sender's name is not included.
+  Future<void> _showMessageCopyMenu(
+    BuildContext context,
+    LiveMessage message,
+    Offset globalPosition,
+  ) async {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final position = overlay.globalToLocal(globalPosition);
+    final action = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        overlay.size.width - position.dx,
+        overlay.size.height - position.dy,
+      ),
+      items: const [
+        PopupMenuItem<String>(
+          value: 'copy',
+          child: Text('复制内容'),
+        ),
+      ],
+    );
+    if (action == 'copy') {
+      Utils.copyToClipboard(message.message);
+    }
   }
 
   Widget buildSuperChats() {
