@@ -1,33 +1,42 @@
 name: app-build-action
 #推送Tag时触发
 on:
+  workflow_dispatch:
   push:
+    branches:
+      - master
     tags:
       - "v*"
 jobs:
+  analyze:
+    name: Analyze live-room changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.3'
+          channel: stable
+          cache: true
+      - name: Restore packages
+        working-directory: simple_live_app
+        run: flutter pub get
+      - name: Analyze changed Dart files
+        working-directory: simple_live_app
+        run: |
+          dart analyze --fatal-infos lib/modules/live_room/live_room_controller.dart
+          dart analyze --fatal-infos lib/modules/live_room/live_room_page.dart
+
   build-mac-ios-android:
+    needs: analyze
     runs-on: macos-latest
     permissions:
       contents: write
     steps:
       #签出代码
       - uses: actions/checkout@v4
-        with:
-          ref: master
-
-      #APK签名设置
-      - name: Download Android keystore
-        id: android_keystore
-        uses: timheuer/base64-to-file@v1.2
-        with:
-          fileName: keystore.jks
-          encodedString: ${{ secrets.KEYSTORE_BASE64 }}
-      - name: Create key.properties
-        run: |
-          echo "storeFile=${{ steps.android_keystore.outputs.filePath }}" > simple_live_app/android/key.properties
-          echo "storePassword=${{ secrets.STORE_PASSWORD }}" >> simple_live_app/android/key.properties
-          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> simple_live_app/android/key.properties
-          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> simple_live_app/android/key.properties
 
       #设置JAVA环境
       - uses: actions/setup-java@v4
@@ -36,6 +45,37 @@ jobs:
           java-version: "17"
           cache: "gradle"
 
+      # Test builds get an ephemeral key; tagged releases require production secrets.
+      - name: Configure Android signing
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$RELEASE_KEYSTORE_BASE64" && -n "$STORE_PASSWORD" && -n "$KEY_PASSWORD" && -n "$KEY_ALIAS" ]]; then
+            key_path="$RUNNER_TEMP/simple-live-release.jks"
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -D > "$key_path"
+            echo "Using configured Android release signing key"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo '::error::Release tag requires KEYSTORE_BASE64, STORE_PASSWORD, KEY_PASSWORD and KEY_ALIAS'
+            exit 1
+          else
+            echo '::notice::Using ephemeral test-only Android signing key'
+            key_path="$RUNNER_TEMP/simple-live-ci.jks"
+            STORE_PASSWORD='ci-test-only'
+            KEY_PASSWORD='ci-test-only'
+            KEY_ALIAS='ci'
+            keytool -genkeypair -noprompt -keystore "$key_path" \
+              -storepass "$STORE_PASSWORD" -keypass "$KEY_PASSWORD" \
+              -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 \
+              -validity 30 -dname 'CN=Simple Live CI, OU=Testing, O=CI, C=US'
+          fi
+          printf 'storeFile=%s\nstorePassword=%s\nkeyPassword=%s\nkeyAlias=%s\n' \
+            "$key_path" "$STORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" \
+            > simple_live_app/android/key.properties
       #设置Flutter
       - name: Flutter action
         uses: subosito/flutter-action@v2
@@ -118,13 +158,16 @@ jobs:
 
       #获取版本信息（自动从 Git Tag 提取）
       - name: Get version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
       - name: Echo version
+        if: startsWith(github.ref, 'refs/tags/v')
         run: echo "${{ steps.version.outputs.VERSION }}"
 
       #上传至Release
       - name: Upload Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
           name: "${{ steps.version.outputs.VERSION }}"
@@ -143,14 +186,13 @@ jobs:
 
   # 打包Linux
   build-linux:
+    needs: analyze
     runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
       # 签出代码
       - uses: actions/checkout@v4
-        with:
-          ref: master
       # 设置Flutter环境
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -189,13 +231,16 @@ jobs:
 
       #获取版本信息（自动从 Git Tag 提取）
       - name: Get version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
       - name: Echo version
+        if: startsWith(github.ref, 'refs/tags/v')
         run: echo "${{ steps.version.outputs.VERSION }}"
 
       #上传至Release
       - name: Upload Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
           name: "${{ steps.version.outputs.VERSION }}"
@@ -210,14 +255,13 @@ jobs:
 
   # 打包Windows
   build-windows:
+    needs: analyze
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       # 签出代码
       - uses: actions/checkout@v4
-        with:
-          ref: master
       # 设置Flutter环境
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -250,14 +294,17 @@ jobs:
 
       #获取版本信息（自动从 Git Tag 提取）
       - name: Get version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
         id: version
         shell: bash
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
       - name: Echo version
+        if: startsWith(github.ref, 'refs/tags/v')
         run: echo "${{ steps.version.outputs.VERSION }}"
 
       #上传至Release
       - name: Upload Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
           name: "${{ steps.version.outputs.VERSION }}"
