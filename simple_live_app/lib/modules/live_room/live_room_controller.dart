@@ -431,7 +431,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       await initPlaylist();
     } catch (e) {
       if (_active(session)) {
-        Log.d("获取播放地址失败：" + e.toString());
+        Log.d("获取播放地址失败：$e");
         SmartDialog.showToast("无法读取或打开播放地址");
       }
     } finally {
@@ -447,7 +447,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   }
 
   Future<void> initPlaylist() async {
-    currentLineInfo.value = "线路" + (currentLineIndex + 1).toString();
+    currentLineInfo.value = "线路${currentLineIndex + 1}";
     errorMsg.value = "";
     await initializePlayer();
     await player.open(_buildPlaylist());
@@ -456,12 +456,14 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   Future<void> setPlayer() async {
     final session = _playSession;
     _openingStream = true;
-    currentLineInfo.value = "线路" + (currentLineIndex + 1).toString();
+    currentLineInfo.value = "线路${currentLineIndex + 1}";
     errorMsg.value = "";
     try {
       await player.open(_buildPlaylist());
     } catch (e) {
-      if (_active(session)) Log.d("切换线路失败：" + e.toString());
+      if (_active(session)) {
+        Log.d("切换线路失败：$e");
+      }
     } finally {
       if (_active(session)) _openingStream = false;
     }
@@ -470,7 +472,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   void _requestRecovery(String reason) {
     if (isClosed || _openingStream || !liveStatus.value ||
         detail.value == null || currentQuality < 0 ||
-        currentQuality >= qualites.length) return;
+        currentQuality >= qualites.length) {
+      return;
+    }
     if (_recovering) {
       _recoveryFailed = true;
       return;
@@ -491,7 +495,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
           await Future.delayed(Duration(seconds: (attempt - 1) * 2));
         }
         if (!_active(session)) return;
-        Log.d("直播断流，尝试第" + attempt.toString() + "/3次恢复：" + reason);
+        Log.d("直播断流，尝试第$attempt/3次恢复：$reason");
         try {
           final fresh = await site.liveSite.getPlayUrls(
             detail: detail.value!, quality: qualites[currentQuality]);
@@ -500,7 +504,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
           playUrls.value = fresh.urls;
           playHeaders = fresh.headers;
           currentLineIndex = (firstLine + attempt - 1) % playUrls.length;
-          currentLineInfo.value = "线路" + (currentLineIndex + 1).toString();
+          currentLineInfo.value = "线路${currentLineIndex + 1}";
           errorMsg.value = "";
           _recoveryFailed = false;
           _openingStream = true;
@@ -518,13 +522,17 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
             Log.d("直播流恢复成功");
             _stableTimer = Timer(const Duration(seconds: 30), () {
               if (_active(session) && player.state.playing &&
-                  !player.state.completed) mediaErrorRetryCount = 0;
+                  !player.state.completed) {
+                mediaErrorRetryCount = 0;
+              }
             });
             return;
           }
           throw StateError("重连后仍未稳定播放");
         } catch (e) {
-          if (_active(session)) Log.d("恢复失败：" + e.toString());
+          if (_active(session)) {
+            Log.d("恢复失败：$e");
+          }
         }
       }
       if (_active(session)) {
