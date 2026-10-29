@@ -104,8 +104,20 @@ class DouyuSite implements LiveSite {
       formUrlEncoded: true,
     );
 
+    if (result is! Map || result["data"] is! Map) {
+      throw const FormatException("斗鱼画质接口返回的数据结构异常");
+    }
+    final responseData = result["data"] as Map;
+    if (responseData["cdnsWithName"] is! List ||
+        responseData["multirates"] is! List) {
+      throw const FormatException("斗鱼画质接口缺少必要字段");
+    }
+
     var cdns = <String>[];
-    for (var item in result["data"]["cdnsWithName"]) {
+    for (var item in responseData["cdnsWithName"]) {
+      if (item is! Map || item["cdn"] == null) {
+        throw const FormatException("斗鱼 CDN 信息格式异常");
+      }
       cdns.add(item["cdn"].toString());
     }
 
@@ -119,7 +131,10 @@ class DouyuSite implements LiveSite {
       return 0;
     });
 
-    for (var item in result["data"]["multirates"]) {
+    for (var item in responseData["multirates"]) {
+      if (item is! Map || item["rate"] is! int) {
+        throw const FormatException("斗鱼画质信息格式异常");
+      }
       qualities.add(
         LivePlayQuality(
           quality: item["name"].toString(),
@@ -166,7 +181,20 @@ class DouyuSite implements LiveSite {
       formUrlEncoded: true,
     );
 
-    return "${result["data"]["rtmp_url"]}/${HtmlUnescape().convert(result["data"]["rtmp_live"].toString())}";
+    if (result is! Map || result["data"] is! Map) {
+      final errorCode = result is Map ? result["error"] : null;
+      throw FormatException(
+        "斗鱼播放接口响应异常（错误码：${errorCode is int ? errorCode : "未知"}）",
+      );
+    }
+    final streamData = result["data"] as Map;
+    final streamUrl = streamData["rtmp_url"];
+    final streamName = streamData["rtmp_live"];
+    if (streamUrl is! String || streamUrl.isEmpty ||
+        streamName is! String || streamName.isEmpty) {
+      throw const FormatException("斗鱼播放接口缺少有效直播地址");
+    }
+    return "$streamUrl/${HtmlUnescape().convert(streamName)}";
   }
 
   @override

@@ -497,10 +497,48 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         if (!_active(session)) return;
         Log.d("直播断流，尝试第$attempt/3次恢复：$reason");
         try {
+          var recoveryDetail = detail.value!;
+          var recoveryQuality = qualites[currentQuality];
+          List<LivePlayQuality>? refreshedQualities;
+          int? refreshedQualityIndex;
+          if (site.id == Constant.kDouyu) {
+            // Douyu's signed playback parameters expire. Recreate the
+            // signature and CDN/quality list before each reconnect attempt.
+            recoveryDetail = await site.liveSite.getRoomDetail(
+              roomId: recoveryDetail.roomId,
+            );
+            if (!_active(session)) return;
+            if (!recoveryDetail.status && !recoveryDetail.isRecord) {
+              throw StateError("斗鱼直播间已结束");
+            }
+            refreshedQualities = await site.liveSite.getPlayQualites(
+              detail: recoveryDetail,
+            );
+            if (!_active(session)) return;
+            if (refreshedQualities.isEmpty) {
+              throw StateError("斗鱼画质列表为空");
+            }
+            final matchedIndex = refreshedQualities.indexWhere(
+              (item) => item.quality == recoveryQuality.quality,
+            );
+            refreshedQualityIndex = matchedIndex >= 0
+                ? matchedIndex
+                : currentQuality < refreshedQualities.length
+                    ? currentQuality
+                    : refreshedQualities.length - 1;
+            recoveryQuality = refreshedQualities[refreshedQualityIndex];
+          }
           final fresh = await site.liveSite.getPlayUrls(
-            detail: detail.value!, quality: qualites[currentQuality]);
+            detail: recoveryDetail,
+            quality: recoveryQuality,
+          );
           if (!_active(session)) return;
           if (fresh.urls.isEmpty) throw StateError("直播地址为空");
+          if (refreshedQualities != null) {
+            qualites.value = refreshedQualities;
+            currentQuality = refreshedQualityIndex!;
+            currentQualityInfo.value = recoveryQuality.quality;
+          }
           playUrls.value = fresh.urls;
           playHeaders = fresh.headers;
           currentLineIndex = (firstLine + attempt - 1) % playUrls.length;
@@ -529,9 +567,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
             return;
           }
           throw StateError("重连后仍未稳定播放");
-        } catch (e) {
+        } catch (e, stackTrace) {
           if (_active(session)) {
-            Log.d("恢复失败：$e");
+            Log.e("直播恢复失败（第$attempt/3次）：$e", stackTrace);
           }
         }
       }
