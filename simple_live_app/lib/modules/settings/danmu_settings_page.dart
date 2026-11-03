@@ -178,6 +178,26 @@ class DanmuSettingsView extends GetView<AppSettingsController> {
                   },
                 ),
               ),
+              AppStyle.divider,
+              Obx(
+                () => SettingsNumber(
+                  title: "弹幕帧率上限",
+                  subtitle: "0 跟随屏幕，降低帧率可减少耗电",
+                  value: controller.danmuMaxFps.value,
+                  displayValue: controller.danmuMaxFps.value == 0
+                      ? "跟随屏幕"
+                      : "${controller.danmuMaxFps.value} FPS",
+                  min: 0,
+                  max: 120,
+                  step: 30,
+                  onChanged: (value) {
+                    controller.setDanmuMaxFps(value);
+                    updateDanmuOption(danmakuController?.option.copyWith(
+                      maxFps: controller.danmuMaxFps.value,
+                    ));
+                  },
+                ),
+              ),
               // AppStyle.divider,
               // Obx(
               //   () => SettingsNumber(

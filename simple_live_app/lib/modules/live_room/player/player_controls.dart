@@ -651,6 +651,7 @@ Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
     key: controller.globalDanmuKey,
     createdController: controller.initDanmakuController,
     option: DanmakuOption(
+      maxFps: AppSettingsController.instance.danmuMaxFps.value,
       fontSize: AppSettingsController.instance.danmuSize.value,
       area: AppSettingsController.instance.danmuArea.value,
       duration: AppSettingsController.instance.danmuSpeed.value.toInt(),
@@ -665,15 +666,18 @@ Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
     child: Obx(
       () => Offstage(
         offstage: !controller.showDanmakuState.value,
-        child: Padding(
-          padding: controller.fullScreenState.value
-              ? EdgeInsets.only(
-                  top: AppSettingsController.instance.danmuTopMargin.value,
-                  bottom:
-                      AppSettingsController.instance.danmuBottomMargin.value,
-                )
-              : EdgeInsets.zero,
-          child: controller.danmakuView!,
+        child: TickerMode(
+          enabled: controller.showDanmakuState.value,
+          child: Padding(
+            padding: controller.fullScreenState.value
+                ? EdgeInsets.only(
+                    top: AppSettingsController.instance.danmuTopMargin.value,
+                    bottom:
+                        AppSettingsController.instance.danmuBottomMargin.value,
+                  )
+                : EdgeInsets.zero,
+            child: controller.danmakuView!,
+          ),
         ),
       ),
     ),

@@ -32,6 +32,8 @@ class LocalStorageService extends GetxService {
   /// 弹幕速度
   static const String kDanmuSpeed = "DanmuSpeed";
 
+  static const String kDanmuMaxFps = "DanmuMaxFps";
+
   /// 弹幕区域
   static const String kDanmuArea = "DanmuArea";
 

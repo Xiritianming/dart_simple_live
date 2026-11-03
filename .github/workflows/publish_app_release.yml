@@ -23,11 +23,19 @@ jobs:
       - name: Restore packages
         working-directory: simple_live_app
         run: flutter pub get
+      - name: Analyze and test danmaku renderer
+        working-directory: simple_live_app/packages/canvas_danmaku
+        run: |
+          flutter pub get
+          dart format --output=none --set-exit-if-changed lib test
+          flutter analyze --fatal-infos
+          flutter test
       - name: Analyze changed Dart files
         working-directory: simple_live_app
         run: |
           dart analyze --fatal-infos lib/modules/live_room/live_room_controller.dart
           dart analyze --fatal-infos lib/modules/live_room/live_room_page.dart
+          dart analyze --fatal-infos lib/modules/live_room/player/player_controls.dart lib/modules/settings/danmu_settings_page.dart lib/app/controller/app_settings_controller.dart lib/services/local_storage_service.dart
 
   build-android:
     needs: analyze

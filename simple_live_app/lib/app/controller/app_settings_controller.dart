@@ -33,6 +33,10 @@ class AppSettingsController extends GetxController {
         .getValue(LocalStorageService.kDanmuArea, 0.8);
     danmuSpeed.value = LocalStorageService.instance
         .getValue(LocalStorageService.kDanmuSpeed, 10.0);
+    danmuMaxFps.value = (LocalStorageService.instance
+            .getValue(LocalStorageService.kDanmuMaxFps, 60))
+        .clamp(0, 120)
+        .toInt();
     danmuEnable.value = LocalStorageService.instance
         .getValue(LocalStorageService.kDanmuEnable, true);
     danmuStrokeWidth.value = LocalStorageService.instance
@@ -151,7 +155,7 @@ class AppSettingsController extends GetxController {
         .getValue(LocalStorageService.kUpdateFollowDuration, 10);
 
     updateFollowThreadCount.value = LocalStorageService.instance
-        .getValue(LocalStorageService.kUpdateFollowThreadCount, 0);  // 默认 0 = 自动
+        .getValue(LocalStorageService.kUpdateFollowThreadCount, 0); // 默认 0 = 自动
 
     initSiteSort();
     initHomeSort();
@@ -273,6 +277,13 @@ class AppSettingsController extends GetxController {
   }
 
   var danmuSpeed = 10.0.obs;
+  var danmuMaxFps = 60.obs;
+  void setDanmuMaxFps(int value) {
+    danmuMaxFps.value = value.clamp(0, 120).toInt();
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kDanmuMaxFps, danmuMaxFps.value);
+  }
+
   void setDanmuSpeed(double e) {
     danmuSpeed.value = e;
     LocalStorageService.instance.setValue(LocalStorageService.kDanmuSpeed, e);
